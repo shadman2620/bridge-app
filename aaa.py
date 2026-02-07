@@ -9,6 +9,9 @@ import time
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 
+# Hover tool
+import mplcursors
+
 # ================= RAINFLOW FUNCTION =================
 def rainflow_cycles(signal):
     cycles = []
@@ -145,7 +148,6 @@ def predict_cycles(load):
         return 1
     return (load/sigma_f)**(1/b_f) / 2
 
-# ML TRAIN
 np.random.seed(42)
 loads = np.random.uniform(0.1*sigma_u, sigma_u, 1000)
 cycles = np.array([predict_cycles(l) for l in loads])
@@ -167,38 +169,62 @@ with colB:
         if l_safe >= sigma_u: l_safe = 0.99 * sigma_u
         st.success(f"Safe Load = {l_safe:.2f} kN")
 
-# ================= REFINED MOVING LOAD SIMULATION =================
+# ================= MOVING LOAD SIMULATION (FINAL MODIFIED BLOCK) =================
 st.markdown("---")
 st.subheader("🚗 Live Moving Load Simulation")
 
 sim_load = st.number_input("Vehicle Weight (kN)", value=200.0)
+
 if st.button("▶️ Start Moving Load Simulation"):
-    x_points = np.linspace(0, L, 100)
-    plot_spot = st.empty()
     
-    for pos in np.arange(0, L + 0.5, 0.5):
+    x_points = np.linspace(0, L, 100)   # 100 equal parts
+    plot_spot = st.empty()
+
+    # Precompute deflection trace at midspan load (for dotted line reference)
+    trace_deflection = []
+
+    for pos in np.linspace(0, L, 100):   # 100 steps
         a = pos
         b_dist = L - a
         y_def = []
+
         for xi in x_points:
-            # Deflection formula for point load at any position 'a'
             if xi <= a:
                 val = (sim_load * 1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2)) / (6 * curr_e_pa * I_calc * L)
             else:
                 val = (sim_load * 1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2)) / (6 * curr_e_pa * I_calc * L)
             y_def.append(val * 1000)
 
+        trace_deflection = y_def.copy()   # store last deflection curve
+
         fig_sim, ax_sim = plt.subplots(figsize=(10, 4))
-        ax_sim.plot(x_points, [-y for y in y_def], color='blue', lw=2, label='Deflected Shape')
+
+        # Deflected shape (blue)
+        line_main, = ax_sim.plot(x_points, [-y for y in y_def], lw=2, label='Deflected Shape')
+
+        # Black dotted trace line
+        line_trace, = ax_sim.plot(x_points, [-y for y in trace_deflection], 'k--', lw=1, label='Deflection Trace')
+
+        # Vehicle marker
+        ax_sim.plot([pos], [0], marker='o', color='red', markersize=10, label=f'Vehicle at {pos:.2f} m')
+
         ax_sim.axhline(0, color='black', lw=1)
-        ax_sim.plot([pos], [0], marker='o', color='red', markersize=10, label=f'Vehicle at {pos:.1f}m')
         ax_sim.set_ylim(-limit_mm * 1.5, 5)
         ax_sim.set_xlabel("Span (m)")
         ax_sim.set_ylabel("Deflection (mm)")
         ax_sim.legend()
         ax_sim.grid(True, linestyle='--')
-        
+
+        # Cursor hover display
+        cursor = mplcursors.cursor(line_trace, hover=True)
+        @cursor.connect("add")
+        def on_add(sel):
+            x, y = sel.target
+            sel.annotation.set_text(f"x = {x:.2f} m\nDeflection = {-y:.3f} mm")
+
         plot_spot.pyplot(fig_sim)
         plt.close(fig_sim)
-        time.sleep(0.05)
+
+        time.sleep(0.1)   # 0.1 second per segment
+
     st.success("Simulation Complete!")
