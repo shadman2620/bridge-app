@@ -40,24 +40,6 @@ with st.expander("📖 USER MANUAL & DOCUMENTATION"):
     2. **Impact Analysis:** Enter a vehicle load (kN) and click **'Run Impact Analysis'**. 
     3. **Multiple Inputs:** You can apply loads multiple times to see the **Cumulative Damage**.
     4. **Simulation:** Use the 'Moving Load' section to see the bridge's live deflection curve.
-
-    ### 🧪 The Engineering Logic (Impact Analysis)
-    This app follows a **Dynamic Damage Model** based on how you interact with it:
-    
-    * **Load Intensity:** - **Low Loads:** Cause minimal wear and tear (Stiffness stays high).
-        - **High Loads:** Cause significant internal damage. If you apply a load near the **Ultimate Capacity**, the stiffness drops sharply.
-        - **Extreme Overload:** If the load is too high (e.g., 5x the limit), the bridge will **Collapse Instantly**, simulating a sudden structural failure.
-    
-    * **Cumulative Fatigue (Multiple Inputs):**
-        - Every time you click 'Run Analysis', the bridge "remembers" the stress. 
-        - Even if you apply small loads many times, the **Stiffness ($E$)** will gradually decrease, representing **Fatigue Cracking**.
-    
-    * **Safety Status:**
-        - 🟢 **Green:** Safe (Deflection within L/800).
-        - 🟠 **Orange:** Warning (Structural fatigue starting).
-        - 🔴 **Red:** Danger (Immediate maintenance required).
-    
-    * **AI Forecast:** The AI analyzes your previous inputs and predicts how many more such cycles the bridge can survive before it becomes unsafe.
     """)
 
 # ================= MATERIAL DATA (IS 456:2000) =================
@@ -112,7 +94,6 @@ if not st.session_state.is_collapsed:
 
         if st.button("RUN IMPACT ANALYSIS"):
             st.session_state.load_history.append(applied_p)
-
             if applied_p >= p_ultimate:
                 st.session_state.is_collapsed = True
                 st.session_state.e_current = 0
@@ -136,19 +117,17 @@ if not st.session_state.is_collapsed:
                     "Deflection_mm": round(delta,3),
                     "E_GPa": round(st.session_state.e_current/1000,3)
                 })
-
                 st.session_state.e_current *= (1 - damage_factor)
                 st.rerun()
 
     with col2:
         health = (st.session_state.e_current / initial_E) * 100
         st.write(f"## Health Index = {health:.2f}%")
-        
         health_map = np.linspace(0, 100, 200)
         colors = plt.cm.get_cmap("RdYlGn")(health_map/100)
         fig, ax = plt.subplots(figsize=(6,1))
         ax.imshow([colors], extent=[0,100,0,1])
-        # CHANGE 4: Dark black and thicker line for health trace
+        # MODIFICATION: Thicker dark black trace for visibility
         ax.axvline(health, color='black', linewidth=5) 
         ax.set_yticks([])
         ax.set_xlabel("Health Status")
@@ -159,7 +138,6 @@ st.markdown("---")
 st.subheader("🤖 Fatigue & AI Prediction Module")
 
 sigma_u, sigma_f, b_f = p_ultimate, 0.9 * p_ultimate, -0.09
-
 def predict_cycles(load):
     if load >= sigma_u: return 1
     return (load/sigma_f)**(1/b_f) / 2
@@ -183,8 +161,8 @@ st.subheader("🚗 Live Moving Load Simulation")
 
 sim_load = st.number_input("Vehicle Weight (kN)", value=200.0)
 
-# CHANGE 1: Improved Simulation Button UI
-if st.button("▶️ START REAL-TIME BRIDGE MONITORING", use_container_width=True, type="primary"):
+# MODIFICATION: Improved UI for the button
+if st.button("🚀 START REAL-TIME MOVING LOAD SIMULATION", use_container_width=True, type="primary"):
     x_points = np.linspace(0, L, 50) 
     plot_spot = st.empty()
     
@@ -196,38 +174,38 @@ if st.button("▶️ START REAL-TIME BRIDGE MONITORING", use_container_width=Tru
                 val = (sim_load * 1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2)) / (6 * curr_e_pa * I_calc * L)
             else:
                 val = (sim_load * 1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2)) / (6 * curr_e_pa * I_calc * L)
-            y_def.append(-val * 1000) 
+            y_def.append(-val * 1000)
 
-        # Using Plotly for smooth, flicker-free animation
+        # Using Plotly for smooth animation
         fig = go.Figure()
-        
-        # Bridge Deck line
         fig.add_trace(go.Scatter(x=[0, L], y=[0, 0], mode='lines', line=dict(color='black', width=3), name='Bridge'))
-        
-        # Deflection Curve
         fig.add_trace(go.Scatter(x=x_points, y=y_def, mode='lines', fill='tozeroy', line=dict(color='blue', width=4), name='Deflection'))
         
-        # CHANGE 2 & 3: Red mark with live Distance and Deflection text
-        current_deflection = min(y_def)
+        # MODIFICATION: Red Marker + Distance Label + Max Deflection Label
+        max_def = min(y_def)
+        fig.add_trace(go.Scatter(
+            x=[pos], y=[2], # Slightly above bridge for visibility
+            mode='markers+text',
+            marker=dict(symbol='square', size=18, color='red'),
+            text=[f"Pos: {pos:.1f}m"],
+            textposition="top center",
+            name='Vehicle'
+        ))
         
-        # Vehicle Marker (Red Square)
-        fig.add_trace(go.Scatter(x=[pos], y=[0.5], mode='markers+text', 
-                                 marker=dict(symbol='square', size=18, color='red'),
-                                 text=[f"{pos:.1f} m"], textposition="top center",
-                                 name='Vehicle'))
-
-        # Live Deflection Annotation at the bottom of the curve
-        fig.add_annotation(x=pos, y=current_deflection,
-                           text=f"Deflection: {abs(current_deflection):.2f} mm",
-                           showarrow=True, arrowhead=2, ay=40, bgcolor="yellow")
+        # Live Deflection Marking
+        fig.add_annotation(
+            x=pos, y=max_def,
+            text=f"Deflection: {abs(max_def):.2f} mm",
+            showarrow=True, arrowhead=2, ay=40, bgcolor="white", bordercolor="red"
+        )
 
         fig.update_layout(
-            yaxis=dict(range=[-limit_mm * 1.8, 10], title="Deflection (mm)"),
+            yaxis=dict(range=[-limit_mm * 2.0, 10], title="Deflection (mm)"),
             xaxis=dict(title="Span Length (m)"),
-            height=500,
+            height=450,
             showlegend=False,
             template="plotly_white",
-            title=f"Live Monitoring System | Span: {L}m | Load: {sim_load}kN"
+            title=f"Structural Health Monitoring: Vehicle at {pos:.1f}m"
         )
         
         plot_spot.plotly_chart(fig, use_container_width=True, key=f"anim_{pos}")
