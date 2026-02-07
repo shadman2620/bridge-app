@@ -1,6 +1,6 @@
 # =====================================================
 # NIT PATNA: BRIDGE DIGITAL TWIN (FINAL MASTER CODE)
-# Developed for M.Tech Structural Engineering
+# Developed for M.Tech Structural Engineering Research
 # =====================================================
 import streamlit as st
 import pandas as pd
@@ -32,20 +32,34 @@ st.set_page_config(page_title="NIT Patna Bridge Health Monitor", layout="wide")
 with st.expander("📖 USER MANUAL & DOCUMENTATION"):
     st.markdown("""
     ### 🏗️ Project Overview
-    This application is a **Digital Twin** prototype for Structural Health Monitoring (SHM). It combines Structural Mechanics, Fatigue Analysis (Miner's Rule), and Machine Learning to predict the health of a bridge.
+    This **Digital Twin** app simulates the real-time health of a bridge. It uses structural mechanics and AI to show how traffic and heavy loads degrade a structure over time.
 
     ### 🛠️ How to Use
-    1. **Setup Parameters:** Use the sidebar to define **Concrete Grade (M25-M50)** and Bridge Dimensions. The Stiffness ($E$) is calculated as per **IS 456:2000**.
-    2. **Impact Analysis:** Enter a vehicle load (kN) and click 'Run Analysis'. 
-        - 🟢 **Green:** Safe Operation.
-        - 🟠 **Orange:** Maintenance Warning.
-        - 🔴 **Red:** Critical Deflection (> L/800).
-    3. **AI Prediction:** Based on the fatigue model, the AI predicts the **Remaining Useful Life (RUL)** in terms of load cycles.
-    4. **Live Simulation:** Start the 'Moving Load Simulation' to see the **Elastic Curve** response as a vehicle travels across the span.
-    5. **Reset:** Use the 'Reset Simulation' button in the sidebar to start a new lifecycle.
+    1. **Setup:** Select **Concrete Grade** and bridge dimensions in the sidebar.
+    2. **Impact Analysis:** Enter a vehicle load (kN) and click **'Run Impact Analysis'**. 
+    3. **Multiple Inputs:** You can apply loads multiple times to see the **Cumulative Damage**.
+    4. **Simulation:** Use the 'Moving Load' section to see the bridge's live deflection curve.
+
+    ### 🧪 The Engineering Logic (Impact Analysis)
+    This app follows a **Dynamic Damage Model** based on how you interact with it:
+    
+    * **Load Intensity:** - **Low Loads:** Cause minimal wear and tear (Stiffness stays high).
+        - **High Loads:** Cause significant internal damage. If you apply a load near the **Ultimate Capacity**, the stiffness drops sharply.
+        - **Extreme Overload:** If the load is too high (e.g., 5x the limit), the bridge will **Collapse Instantly**, simulating a sudden structural failure.
+    
+    * **Cumulative Fatigue (Multiple Inputs):**
+        - Every time you click 'Run Analysis', the bridge "remembers" the stress. 
+        - Even if you apply small loads many times, the **Stiffness ($E$)** will gradually decrease, representing **Fatigue Cracking**.
+    
+    * **Safety Status:**
+        - 🟢 **Green:** Safe (Deflection within L/800).
+        - 🟠 **Orange:** Warning (Structural fatigue starting).
+        - 🔴 **Red:** Danger (Immediate maintenance required).
+    
+    * **AI Forecast:** The AI analyzes your previous inputs and predicts how many more such cycles the bridge can survive before it becomes unsafe.
     """)
 
-# ================= MATERIAL DATA =================
+# ================= MATERIAL DATA (IS 456:2000) =================
 concrete_grades = {
     "M25": 25000, "M30": 27386, "M35": 29580, "M40": 31622, "M50": 35355
 }
@@ -104,6 +118,7 @@ if not st.session_state.is_collapsed:
                 st.error("💥 BRIDGE COLLAPSED")
             else:
                 load_ratio = applied_p / p_perm
+                # Damage model: function of Load-to-Capacity ratio
                 damage_factor = 0.02 + (load_ratio**3)*0.15
 
                 delta = ((applied_p*1000*(L**3))/(48*curr_e_pa*I_calc))*1000
@@ -144,7 +159,7 @@ if not st.session_state.is_collapsed:
 st.markdown("---")
 st.subheader("🤖 Fatigue & AI Prediction Module")
 
-sigma_u, sigma_f, b_f, sigma_cap = p_ultimate, 0.9 * p_ultimate, -0.09, 0.95 * p_ultimate
+sigma_u, sigma_f, b_f = p_ultimate, 0.9 * p_ultimate, -0.09
 
 def predict_cycles(load):
     if load >= sigma_u: return 1
@@ -177,6 +192,7 @@ if st.button("▶️ Start Moving Load Simulation"):
         a, b_dist = pos, L - pos
         y_def = []
         for xi in x_points:
+            # Deflection formula based on Macaulay's logic for varying vehicle position
             if xi <= a:
                 val = (sim_load * 1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2)) / (6 * curr_e_pa * I_calc * L)
             else:
@@ -196,5 +212,5 @@ if st.button("▶️ Start Moving Load Simulation"):
 # ================= HISTORY TABLE =================
 if st.session_state.history:
     st.markdown("---")
-    st.subheader("📜 Structural History")
+    st.subheader("📜 Structural History Log")
     st.table(pd.DataFrame(st.session_state.history))
