@@ -40,24 +40,6 @@ with st.expander("📖 USER MANUAL & DOCUMENTATION"):
     2. **Impact Analysis:** Enter a vehicle load (kN) and click **'Run Impact Analysis'**. 
     3. **Multiple Inputs:** You can apply loads multiple times to see the **Cumulative Damage**.
     4. **Simulation:** Use the 'Moving Load' section to see the bridge's live deflection curve.
-
-    ### 🧪 The Engineering Logic (Impact Analysis)
-    This app follows a **Dynamic Damage Model** based on how you interact with it:
-    
-    * **Load Intensity:** - **Low Loads:** Cause minimal wear and tear (Stiffness stays high).
-        - **High Loads:** Cause significant internal damage. If you apply a load near the **Ultimate Capacity**, the stiffness drops sharply.
-        - **Extreme Overload:** If the load is too high (e.g., 5x the limit), the bridge will **Collapse Instantly**, simulating a sudden structural failure.
-    
-    * **Cumulative Fatigue (Multiple Inputs):**
-        - Every time you click 'Run Analysis', the bridge "remembers" the stress. 
-        - Even if you apply small loads many times, the **Stiffness ($E$)** will gradually decrease, representing **Fatigue Cracking**.
-    
-    * **Safety Status:**
-        - 🟢 **Green:** Safe (Deflection within L/800).
-        - 🟠 **Orange:** Warning (Structural fatigue starting).
-        - 🔴 **Red:** Danger (Immediate maintenance required).
-    
-    * **AI Forecast:** The AI analyzes your previous inputs and predicts how many more such cycles the bridge can survive before it becomes unsafe.
     """)
 
 # ================= MATERIAL DATA (IS 456:2000) =================
@@ -176,16 +158,20 @@ with colA:
         st.success(f"Physics Life: {int(predict_cycles(l_in))} Cycles")
         st.info(f"AI Predicted Life: {int(rf.predict([[l_in]])[0])} Cycles")
 
-# ================= LIVE MOVING LOAD SIMULATION (100 STEPS, NO FLICKER) =================
+# ================= LIVE MOVING LOAD SIMULATION (UPGRADED UI) =================
 st.markdown("---")
-st.subheader("🚗 Live Moving Load Simulation")
+st.subheader("🚗 Live Structural Response Monitoring")
 
-sim_load = st.number_input("Vehicle Weight (kN)", value=200.0)
-if st.button("▶️ Initialize Smooth Animation"):
+sim_load = st.number_input("Simulation Load (kN)", value=200.0)
+
+if st.button("📡 GENERATE DIGITAL TWIN RESPONSE"):
     x_points = np.linspace(0, L, 100)
-    move_steps = np.linspace(0, L, 100) # 100 frames for 0.1s each
+    move_steps = np.linspace(0, L, 100) 
     
+    # Calculate global max envelope for imprint
+    envelope_y = np.zeros(100)
     frames = []
+    
     for pos in move_steps:
         a, b_dist = pos, L - pos
         y_def = []
@@ -196,28 +182,46 @@ if st.button("▶️ Initialize Smooth Animation"):
                 val = (sim_load * 1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2)) / (6 * curr_e_pa * I_calc * L)
             y_def.append(-val * 1000)
         
+        # Update envelope for the 'imprint' effect
+        envelope_y = np.minimum(envelope_y, y_def)
+        current_max_defl = min(y_def)
+
         frames.append(go.Frame(
             data=[
-                go.Scatter(x=x_points, y=y_def, mode='lines', fill='tozeroy', line=dict(color='blue', width=3)),
-                go.Scatter(x=[pos], y=[1], mode='markers', marker=dict(symbol='triangle-down', size=18, color='red'))
+                # Imprint/Envelope Trace (Light Grey)
+                go.Scatter(x=x_points, y=envelope_y.tolist(), mode='lines', line=dict(color='rgba(200, 200, 200, 0.5)', width=2, dash='dot'), name='Envelope'),
+                # Current Deflection Curve
+                go.Scatter(x=x_points, y=y_def, mode='lines', fill='tozeroy', line=dict(color='#1f77b4', width=4), name='Live Response'),
+                # Load Marker with Live Value
+                go.Scatter(x=[pos], y=[2], mode='markers+text', 
+                           marker=dict(symbol='triangle-down', size=20, color='red'),
+                           text=[f"{current_max_defl:.2f} mm"], textposition="top center")
             ],
             name=str(pos)
         ))
 
+    # Initial Static Figure
     fig = go.Figure(
         data=[
-            go.Scatter(x=x_points, y=[0]*100, mode='lines', fill='tozeroy', line=dict(color='blue', width=3)),
-            go.Scatter(x=[0], y=[1], mode='markers', marker=dict(symbol='triangle-down', size=18, color='red'))
+            go.Scatter(x=x_points, y=[0]*100, mode='lines', line=dict(color='black', width=2), name='Bridge Deck'),
+            go.Scatter(x=[0], y=[2], mode='markers', marker=dict(symbol='triangle-down', size=20, color='red'))
         ],
         layout=go.Layout(
-            xaxis=dict(range=[0, L], title="Span (m)"),
-            yaxis=dict(range=[-limit_mm * 1.5, 10], title="Deflection (mm)"),
+            xaxis=dict(range=[0, L], title="Span Length (m)", gridcolor='lightgrey'),
+            yaxis=dict(range=[-limit_mm * 1.8, 10], title="Vertical Deflection (mm)", gridcolor='lightgrey'),
+            plot_bgcolor='white',
             updatemenus=[{
                 "type": "buttons",
+                "showactive": False,
+                "x": 0.05, "y": 1.15, "xanchor": "left", "yanchor": "top",
                 "buttons": [{
-                    "label": "Play Animation (0.1s steps)",
+                    "label": "▶ RUN SIMULATION (0.1s/step)",
                     "method": "animate",
-                    "args": [None, {"frame": {"duration": 100, "redraw": True}, "fromcurrent": True}]
+                    "args": [None, {
+                        "frame": {"duration": 100, "redraw": True},
+                        "fromcurrent": True,
+                        "transition": {"duration": 0}
+                    }]
                 }]
             }]
         ),
