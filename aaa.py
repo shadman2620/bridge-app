@@ -1,11 +1,13 @@
-# ================= IMPORTS =================
+# =====================================================
+# NIT PATNA: BRIDGE DIGITAL TWIN (FINAL MASTER CODE)
+# Developed for M.Tech Structural Engineering
+# =====================================================
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 import time
-
-# ML
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 
@@ -26,13 +28,26 @@ def rainflow_cycles(signal):
 # ================= PAGE SETUP =================
 st.set_page_config(page_title="NIT Patna Bridge Health Monitor", layout="wide")
 
+# ================= USER GUIDE (ENGLISH) =================
+with st.expander("📖 USER MANUAL & DOCUMENTATION"):
+    st.markdown("""
+    ### 🏗️ Project Overview
+    This application is a **Digital Twin** prototype for Structural Health Monitoring (SHM). It combines Structural Mechanics, Fatigue Analysis (Miner's Rule), and Machine Learning to predict the health of a bridge.
+
+    ### 🛠️ How to Use
+    1. **Setup Parameters:** Use the sidebar to define **Concrete Grade (M25-M50)** and Bridge Dimensions. The Stiffness ($E$) is calculated as per **IS 456:2000**.
+    2. **Impact Analysis:** Enter a vehicle load (kN) and click 'Run Analysis'. 
+        - 🟢 **Green:** Safe Operation.
+        - 🟠 **Orange:** Maintenance Warning.
+        - 🔴 **Red:** Critical Deflection (> L/800).
+    3. **AI Prediction:** Based on the fatigue model, the AI predicts the **Remaining Useful Life (RUL)** in terms of load cycles.
+    4. **Live Simulation:** Start the 'Moving Load Simulation' to see the **Elastic Curve** response as a vehicle travels across the span.
+    5. **Reset:** Use the 'Reset Simulation' button in the sidebar to start a new lifecycle.
+    """)
+
 # ================= MATERIAL DATA =================
 concrete_grades = {
-    "M25": 25000, 
-    "M30": 27386, 
-    "M35": 29580, 
-    "M40": 31622, 
-    "M50": 35355
+    "M25": 25000, "M30": 27386, "M35": 29580, "M40": 31622, "M50": 35355
 }
 
 # ================= SIDEBAR =================
@@ -114,60 +129,42 @@ if not st.session_state.is_collapsed:
     with col2:
         health = (st.session_state.e_current / initial_E) * 100
         st.write(f"## Health Index = {health:.2f}%")
-
+        
+        # Color Gauge
         health_map = np.linspace(0, 100, 200)
         colors = plt.cm.get_cmap("RdYlGn")(health_map/100)
-
         fig, ax = plt.subplots(figsize=(6,1))
         ax.imshow([colors], extent=[0,100,0,1])
         ax.axvline(health, color='black', linewidth=3)
         ax.set_yticks([])
-        ax.set_xlabel("Health %")
+        ax.set_xlabel("Health Status")
         st.pyplot(fig)
-
-# ================= HISTORY TABLE =================
-if st.session_state.history:
-    df = pd.DataFrame(st.session_state.history)
-    st.subheader("📜 Structural History")
-    st.dataframe(df)
 
 # ================= FATIGUE & AI MODULE =================
 st.markdown("---")
 st.subheader("🤖 Fatigue & AI Prediction Module")
 
-sigma_u = p_ultimate
-sigma_f = 0.9 * sigma_u
-b_f = -0.09
-sigma_cap = 0.95 * sigma_u
+sigma_u, sigma_f, b_f, sigma_cap = p_ultimate, 0.9 * p_ultimate, -0.09, 0.95 * p_ultimate
 
 def predict_cycles(load):
-    if load >= sigma_u:
-        return 1
+    if load >= sigma_u: return 1
     return (load/sigma_f)**(1/b_f) / 2
 
-# ML TRAIN
+# ML Train logic
 np.random.seed(42)
-loads = np.random.uniform(0.1*sigma_u, sigma_u, 1000)
-cycles = np.array([predict_cycles(l) for l in loads])
-rf = RandomForestRegressor(n_estimators=200).fit(loads.reshape(-1,1), cycles)
+loads_tr = np.random.uniform(0.1*sigma_u, sigma_u, 500).reshape(-1,1)
+cyc_tr = np.array([predict_cycles(l[0]) for l in loads_tr])
+rf = RandomForestRegressor(n_estimators=100).fit(loads_tr, cyc_tr)
 
-colA,colB = st.columns(2)
+colA, colB = st.columns(2)
 with colA:
-    st.write("### Predict Remaining Cycles")
-    load_in = st.number_input("Load for AI Fatigue (kN)", value=100.0, key="L1")
-    if st.button("AI Predict Cycles"):
-        st.success(f"Physics Cycles = {int(predict_cycles(load_in))}")
-        st.info(f"ML Predicted Cycles = {int(rf.predict([[load_in]])[0])}")
+    st.write("### Predict Life")
+    l_in = st.number_input("Load for AI (kN)", value=100.0, key="L1")
+    if st.button("AI Predict"):
+        st.success(f"Physics Life: {int(predict_cycles(l_in))} Cycles")
+        st.info(f"AI Predicted Life: {int(rf.predict([[l_in]])[0])} Cycles")
 
-with colB:
-    st.write("### Predict Safe Load for Target Cycles")
-    N_target = st.number_input("Target Cycles", value=200, key="N1")
-    if st.button("Predict Safe Load"):
-        l_safe = min(sigma_f * (2*N_target)**b_f, sigma_cap)
-        if l_safe >= sigma_u: l_safe = 0.99 * sigma_u
-        st.success(f"Safe Load = {l_safe:.2f} kN")
-
-# ================= REFINED MOVING LOAD SIMULATION =================
+# ================= LIVE MOVING LOAD SIMULATION =================
 st.markdown("---")
 st.subheader("🚗 Live Moving Load Simulation")
 
@@ -177,11 +174,9 @@ if st.button("▶️ Start Moving Load Simulation"):
     plot_spot = st.empty()
     
     for pos in np.arange(0, L + 0.5, 0.5):
-        a = pos
-        b_dist = L - a
+        a, b_dist = pos, L - pos
         y_def = []
         for xi in x_points:
-            # Deflection formula for point load at any position 'a'
             if xi <= a:
                 val = (sim_load * 1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2)) / (6 * curr_e_pa * I_calc * L)
             else:
@@ -189,16 +184,17 @@ if st.button("▶️ Start Moving Load Simulation"):
             y_def.append(val * 1000)
 
         fig_sim, ax_sim = plt.subplots(figsize=(10, 4))
-        ax_sim.plot(x_points, [-y for y in y_def], color='blue', lw=2, label='Deflected Shape')
+        ax_sim.plot(x_points, [-y for y in y_def], color='blue', lw=2)
         ax_sim.axhline(0, color='black', lw=1)
-        ax_sim.plot([pos], [0], marker='o', color='red', markersize=10, label=f'Vehicle at {pos:.1f}m')
+        ax_sim.plot([pos], [0], marker='o', color='red', markersize=10)
         ax_sim.set_ylim(-limit_mm * 1.5, 5)
-        ax_sim.set_xlabel("Span (m)")
-        ax_sim.set_ylabel("Deflection (mm)")
-        ax_sim.legend()
-        ax_sim.grid(True, linestyle='--')
-        
+        ax_sim.set_title(f"Dynamic Deflection at Position: {pos:.1f}m")
         plot_spot.pyplot(fig_sim)
         plt.close(fig_sim)
-        time.sleep(0.05)
-    st.success("Simulation Complete!")
+        time.sleep(0.02)
+
+# ================= HISTORY TABLE =================
+if st.session_state.history:
+    st.markdown("---")
+    st.subheader("📜 Structural History")
+    st.table(pd.DataFrame(st.session_state.history))
