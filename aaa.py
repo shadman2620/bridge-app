@@ -1,5 +1,5 @@
 # =====================================================
-# NIT PATNA: BRIDGE DIGITAL TWIN (INTEGRATED MASTER CODE)
+# NIT PATNA: BRIDGE DIGITAL TWIN (MASTER CODE)
 # Developed by: Shadman Mallick | M.Tech Structural Engineering
 # =====================================================
 import streamlit as st
@@ -51,7 +51,6 @@ limit_mm = (L * 1000) / 800
 curr_e_pa = st.session_state.e_current * 1e6
 
 # Dynamic Calculation: Natural Frequency
-# Formula: f = (pi/2L^2) * sqrt(EI/m)
 nat_freq = (np.pi / (2 * L**2)) * np.sqrt((curr_e_pa * I_calc) / m_unit)
 
 p_perm = (limit_mm/1000 * 48 * curr_e_pa * I_calc) / (L**3) / 1000
@@ -96,7 +95,7 @@ else:
                     "Load_kN": applied_p,
                     "Health_%": round((st.session_state.e_current/initial_E)*100, 2),
                     "Deflection_mm": round(delta, 3),
-                    "Freq_Hz": round(nat_freq, 2)
+                    "E_GPa": round(st.session_state.e_current/1000, 3) # Added key for AI
                 })
                 st.session_state.e_current *= (1 - damage_factor)
                 st.rerun()
@@ -164,62 +163,67 @@ if st.button("▶️ Start Smooth 100-Frame Simulation"):
     fig_h.update_layout(hovermode="x unified", xaxis_title="Position (m)", yaxis_title="Deflection (mm)")
     st.plotly_chart(fig_h, use_container_width=True)
 
-# ================= RESEARCH-GRADE AI & S-N FATIGUE MODULE =================
+# ================= UPGRADED AI FORECASTING & RUL MODULE =================
 st.markdown("---")
-st.subheader("🔬 AI-Driven Fatigue Life Analysis (S-N Curve)")
+st.subheader("🤖 AI Infrastructure Forecasting & Remaining Useful Life (RUL)")
 
-# Basquin's Equation Constants for RCC Fatigue
-# Log(S) = Log(a) - b*Log(N)
-sigma_u = p_ultimate # Ultimate capacity as Stress proxy
-cycles_to_failure = []
-
-if len(st.session_state.history) > 0:
-    col_sn1, col_sn2 = st.columns(2)
-    
-    with col_sn1:
-        st.write("### Fatigue Life Prediction")
-        current_load = v1_load if 'v1_load' in locals() else 100.0
-        
-        # Physics-based Fatigue Calculation (S-N Model)
-        # N = (S / S_u)^(-1/k) where k is fatigue exponent
-        load_ratio = current_load / p_ultimate
-        if load_ratio < 1.0:
-            # Empirical fatigue exponent for concrete (~0.06 to 0.1)
-            n_physics = 10**( (1 - load_ratio) / 0.08 ) 
-        else:
-            n_physics = 1
-            
-        st.metric("Physics-based Remaining Cycles", f"{int(n_physics):,}")
-        st.info("AI is correlating this with your Live Stiffness ($E$) degradation.")
-
-    with col_sn2:
-        # S-N Curve Plotting
-        st.write("### Theoretical S-N Curve")
-        s_values = np.linspace(0.1 * p_ultimate, p_ultimate, 100)
-        n_values = 10**( (1 - (s_values/p_ultimate)) / 0.08 )
-        
-        fig_sn, ax_sn = plt.subplots(figsize=(6, 4))
-        ax_sn.plot(n_values, s_values, color='purple', lw=2, label='Design S-N Curve')
-        
-        # Current Operating Point
-        ax_sn.scatter([n_physics], [current_load], color='red', s=100, label='Current State')
-        
-        ax_sn.set_xscale('log')
-        ax_sn.set_xlabel("Number of Cycles (Log Scale)")
-        ax_sn.set_ylabel("Applied Load (kN)")
-        ax_sn.set_title("Fatigue Life Envelope")
-        ax_sn.grid(True, which="both", ls="-", alpha=0.2)
-        ax_sn.legend()
-        st.pyplot(fig_sn)
-
-# ================= AI LEARNING FROM HISTORY (RE-INTEGRATED) =================
 if len(st.session_state.history) >= 3:
-    st.markdown("#### 🤖 AI Learning from Live Sensor Data")
     df_ai = pd.DataFrame(st.session_state.history)
     X_ai = df_ai[['Load_kN']].values
     y_ai = df_ai['E_GPa'].values
     
+    # AI Learning from live history
     regr = RandomForestRegressor(n_estimators=100).fit(X_ai, y_ai)
-    future_e = regr.predict([[current_load]])[0]
+    current_load_target = v1 if 'v1' in locals() else 100.0
+    future_e = regr.predict([[current_load_target]])[0]
     
-    st.write(f"Based on your recent {len(df_ai)} cycles, AI predicts Stiffness will drop to **{future_e:.2f} GPa** in the next cycle.")
+    col_ai1, col_ai2 = st.columns(2)
+    
+    with col_ai1:
+        st.markdown("#### 📅 Predictive Maintenance Forecast")
+        st.warning(f"AI Forecast: Next cycle of {current_load_target}kN will reduce stiffness to **{future_e:.2f} GPa**.")
+        
+        # Infrastructure Life Score (RUL Logic)
+        life_score = (future_e / (initial_E/1000)) * 100
+        st.info(f"Structural Integrity Score: **{life_score:.1f}/100**")
+        
+        if life_score < 60:
+            st.error("🚨 HIGH RISK: Schedule structural retrofitting immediately.")
+        else:
+            st.success("✅ OPTIMAL: Maintenance not required for next 500 cycles.")
+
+    with col_ai2:
+        st.markdown("#### 📈 AI Learning Curve")
+        fig_learn, ax_learn = plt.subplots(figsize=(6, 4))
+        ax_learn.scatter(X_ai, y_ai, color='blue', label='Live Sensor Data')
+        ax_learn.plot(X_ai, y_ai, color='gray', linestyle='--', alpha=0.5)
+        ax_learn.set_xlabel("Load (kN)")
+        ax_learn.set_ylabel("Stiffness (GPa)")
+        ax_learn.set_title("Stiffness Degradation Mapping")
+        st.pyplot(fig_learn)
+
+else:
+    st.info("💡 Run at least 3 analysis cycles to activate AI Infrastructure Forecasting.")
+
+# ================= S-N CURVE (FATIGUE LIFE ENVELOPE) =================
+st.markdown("---")
+st.subheader("🔬 Fatigue Life Envelope (S-N Curve)")
+
+sigma_u = p_ultimate
+s_values = np.linspace(0.1 * p_ultimate, p_ultimate, 100)
+n_values = 10**( (1 - (s_values/p_ultimate)) / 0.08 )
+
+fig_sn, ax_sn = plt.subplots(figsize=(10, 4))
+ax_sn.plot(n_values, s_values, color='purple', lw=2, label='Theoretical Design S-N Curve')
+ax_sn.set_xscale('log')
+ax_sn.set_xlabel("Number of Cycles (Log Scale)")
+ax_sn.set_ylabel("Applied Load (kN)")
+ax_sn.grid(True, which="both", ls="-", alpha=0.2)
+ax_sn.legend()
+st.pyplot(fig_sn)
+
+# ================= HISTORY TABLE =================
+if st.session_state.history:
+    st.markdown("---")
+    st.subheader("📜 Structural History Log")
+    st.table(pd.DataFrame(st.session_state.history))
