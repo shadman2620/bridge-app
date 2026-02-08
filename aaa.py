@@ -1,7 +1,6 @@
 # =====================================================
-# NIT PATNA: BRIDGE DIGITAL TWIN (SIMPLIFIED UPDATED CODE)
-# Developed for M.Tech Structural Engineering Research
-# Simplified: Fixed bugs, basic fatigue, no complex Rainflow/AI retraining
+# GEC KHAGARIA: BRIDGE DIGITAL TWIN (INTEGRATED MASTER CODE)
+# Developed by: Shehnai Gandhi, Babli Kumari, Shaili Kumari, Raj Kishor
 # =====================================================
 import streamlit as st
 import pandas as pd
@@ -10,47 +9,17 @@ import matplotlib.pyplot as plt
 import time
 from sklearn.ensemble import RandomForestRegressor
 
-# ================= RAINFLOW FUNCTION (SIMPLIFIED) =================
-# Basic cycle counter for fatigue (counts simple peaks, not full Rainflow)
-def count_cycles(signal):
-    cycles = 0
-    for i in range(1, len(signal)):
-        if abs(signal[i] - signal[i-1]) > 0.1:  # Threshold for "cycle"
-            cycles += 1
-    return cycles
-
 # ================= PAGE SETUP =================
-st.set_page_config(page_title="NIT Patna Bridge Health Monitor", layout="wide")
+st.set_page_config(page_title="GEC Khagaria Bridge Health Monitor", layout="wide")
 
-# ================= USER GUIDE (ENGLISH) =================
-with st.expander("📖 USER MANUAL & DOCUMENTATION"):
+# ================= USER GUIDE =================
+with st.expander("📖 SYSTEM DOCUMENTATION & LOGIC"):
     st.markdown("""
-    ### 🏗️ Project Overview
-    This **Digital Twin** app simulates the real-time health of a bridge. It uses structural mechanics and AI to show how traffic and heavy loads degrade a structure over time.
-
-    ### 🛠️ How to Use
-    1. **Setup:** Select **Concrete Grade** and bridge dimensions in the sidebar.
-    2. **Impact Analysis:** Enter a vehicle load (kN) and click **'Run Impact Analysis'**. 
-    3. **Multiple Inputs:** You can apply loads multiple times to see the **Cumulative Damage**.
-    4. **Simulation:** Use the 'Moving Load' section to see the bridge's live deflection curve.
-
-    ### 🧪 The Engineering Logic (Impact Analysis)
-    This app follows a **Dynamic Damage Model** based on how you interact with it:
-    
-    * **Load Intensity:** - **Low Loads:** Cause minimal wear and tear (Stiffness stays high).
-        - **High Loads:** Cause significant internal damage. If you apply a load near the **Ultimate Capacity**, the stiffness drops sharply.
-        - **Extreme Overload:** If the load is too high (e.g., 5x the limit), the bridge will **Collapse Instantly**, simulating a sudden structural failure.
-    
-    * **Cumulative Fatigue (Multiple Inputs):**
-        - Every time you click 'Run Analysis', the bridge "remembers" the stress. 
-        - Even if you apply small loads many times, the **Stiffness ($E$)** will gradually decrease, representing **Fatigue Cracking**. Uses simple cycle counting for damage.
-    
-    * **Safety Status:**
-        - 🟢 **Green:** Safe (Deflection within L/800).
-        - 🟠 **Orange:** Warning (Structural fatigue starting).
-        - 🔴 **Red:** Danger (Immediate maintenance required).
-    
-    * **AI Forecast:** The AI predicts life based on load, but doesn't retrain on history for simplicity.
+    ### 🏗️ Integrated Features
+    1. **Structural Physics:** Euler-Bernoulli theory for real-time deflection.
+    2. **Dynamic Analysis:** Natural frequency calculation based on material stiffness.
+    3. **AI Module:** Random Forest Regressor for life prediction (RUL).
+    4. **Health Audit:** Automated reporting and stiffness degradation tracking.
     """)
 
 # ================= MATERIAL DATA (IS 456:2000) =================
@@ -63,163 +32,145 @@ st.sidebar.header("🌉 Bridge Design Parameters")
 grade = st.sidebar.selectbox("Select Concrete Grade", list(concrete_grades.keys()), index=1)
 initial_E = float(concrete_grades[grade])
 
-b = st.sidebar.number_input("Width b (m)", value=0.5, min_value=0.1)
-h = st.sidebar.number_input("Depth h (m)", value=1.0, min_value=0.1)
-L = st.sidebar.number_input("Span Length L (m)", value=20.0, min_value=1.0)
+b = st.sidebar.number_input("Width b (m)", value=0.5)
+h = st.sidebar.number_input("Depth h (m)", value=1.0)
+L = st.sidebar.number_input("Span Length L (m)", value=20.0)
 
-if b <= 0 or h <= 0 or L <= 0:
-    st.sidebar.error("Dimensions must be positive!")
-    st.stop()
-
+# Constants for Dynamic Analysis
+mass_density = 2500 # kg/m3 for RCC
 I_calc = (b * (h**3)) / 12
+area = b * h
+m_per_unit = mass_density * area
 
 # ================= SESSION STATE =================
 if 'e_current' not in st.session_state or st.sidebar.button("Reset Simulation"):
     st.session_state.e_current = initial_E
     st.session_state.history = []
     st.session_state.is_collapsed = False
-    st.session_state.load_history = []
-    st.session_state.stress_history = []  # Simple list for cycle counting
-    st.session_state.total_damage = 0.0
 
-# ================= STRUCTURAL CALC =================
+# ================= STRUCTURAL CALCULATIONS =================
+curr_e_pa = st.session_state.e_current * 1e6
 limit_mm = (L * 1000) / 800
-curr_e_pa = max(1e-6, st.session_state.e_current * 1e6)  # Prevent division by zero
+
+# Physics Logic: Natural Frequency (Fundamental Mode)
+# Formula: f = (pi/2L^2) * sqrt(EI/m)
+natural_freq = (np.pi / (2 * L**2)) * np.sqrt((curr_e_pa * I_calc) / m_per_unit)
 
 p_perm = (limit_mm/1000 * 48 * curr_e_pa * I_calc) / (L**3) / 1000
 p_ultimate = 1.5 * p_perm
 
-# ================= HEADER =================
-st.title("🏗️ NIT Patna Bridge Health Monitor")
-st.subheader("M.Tech Structural Engineering | AI + Fatigue + Digital Twin")
+# ================= MAIN DASHBOARD =================
+st.title("🏗️ Bridge Digital Twin: AI Health Monitor")
+st.subheader("GEC Khagaria | Physics + AI Integration")
 
-m1,m2,m3,m4 = st.columns(4)
+# Live Metrics Row
+m1, m2, m3, m4 = st.columns(4)
 m1.metric("Current Stiffness", f"{st.session_state.e_current/1000:.2f} GPa")
-m2.metric("Safe Load", f"{0.75*p_perm:.1f} kN")
+m2.metric("Natural Frequency", f"{natural_freq:.2f} Hz")
 m3.metric("Permissible Load", f"{p_perm:.1f} kN")
-m4.metric("Ultimate Load", f"{p_ultimate:.1f} kN")
+health_pct = (st.session_state.e_current / initial_E) * 100
+m4.metric("Health Index", f"{health_pct:.1f}%")
 
 st.markdown("---")
 
-# ================= STRUCTURAL IMPACT ANALYSIS =================
+# ================= IMPACT ANALYSIS & VISUALIZATION =================
 if not st.session_state.is_collapsed:
-    col1,col2 = st.columns(2)
+    col1, col2 = st.columns([1, 1])
 
     with col1:
-        st.write("## Structural Impact Analysis")
-        applied_p = st.number_input("Applied Load (kN)", value=100.0, min_value=0.0)
+        st.write("### 🚀 Structural Impact Analysis")
+        applied_p = st.number_input("Applied Load (kN)", value=100.0)
 
         if st.button("RUN IMPACT ANALYSIS"):
-            st.session_state.load_history.append(applied_p)
-
-            delta = ((applied_p*1000*(L**3))/(48*curr_e_pa*I_calc))*1000
-
-            # Append to stress history (deflection as proxy)
-            st.session_state.stress_history.append(delta)
-
-            # Simple cycle count and damage
-            cycles = count_cycles(st.session_state.stress_history)
-            load_ratio = applied_p / p_perm
-            fatigue_threshold = 0.5  # No damage below 50% load ratio
-            if load_ratio > fatigue_threshold:
-                damage_factor = 0.02 + (load_ratio**2)*0.1  # Simpler model
-                st.session_state.total_damage += damage_factor * cycles / 100  # Scale by cycles
-
-            if applied_p >= p_ultimate or st.session_state.total_damage >= 1.0:
+            if applied_p >= p_ultimate:
                 st.session_state.is_collapsed = True
                 st.session_state.e_current = 0
-                st.error("💥 BRIDGE COLLAPSED")
+                st.error("💥 BRIDGE COLLAPSED: Load exceeded Ultimate Capacity!")
             else:
-                st.session_state.e_current = max(0, initial_E * (1 - st.session_state.total_damage))
-
-                if delta > limit_mm:
-                    st.error(f"🔴 Deflection {delta:.2f} mm")
-                elif delta > 0.75*limit_mm:
-                    st.warning(f"🟠 Deflection {delta:.2f} mm")
-                else:
-                    st.success(f"🟢 Deflection {delta:.2f} mm Safe")
+                # Damage Model: Miner's Rule Simulation
+                load_ratio = applied_p / p_perm
+                damage_factor = 0.015 + (load_ratio**3) * 0.12 # Non-linear decay
+                
+                delta = ((applied_p*1000*(L**3))/(48*curr_e_pa*I_calc))*1000
 
                 st.session_state.history.append({
                     "Cycle": len(st.session_state.history)+1,
                     "Load_kN": applied_p,
-                    "Damage_%": round(st.session_state.total_damage*100,3),
-                    "Deflection_mm": round(delta,3),
-                    "E_GPa": round(st.session_state.e_current/1000,3)
+                    "Deflection_mm": round(delta, 2),
+                    "Frequency_Hz": round(natural_freq, 2),
+                    "Remaining_Health_%": round(health_pct, 2)
                 })
 
+                st.session_state.e_current *= (1 - damage_factor)
                 st.rerun()
 
     with col2:
-        health = (st.session_state.e_current / initial_E) * 100 if initial_E > 0 else 0
-        st.write(f"## Health Index = {health:.2f}%")
-        st.progress(min(100, int(health)))
+        st.write("### 📊 Stress Heatmap")
+        # Creating a dynamic heatmap based on health status
+        fig_heat, ax_heat = plt.subplots(figsize=(8, 2))
+        cmap = plt.cm.get_cmap('RdYlGn')
+        # Map health index to color
+        ax_heat.add_patch(plt.Rectangle((0, 0), L, h, color=cmap(health_pct/100)))
+        ax_heat.set_xlim(0, L)
+        ax_heat.set_ylim(0, h)
+        ax_heat.set_yticks([])
+        ax_heat.set_title(f"Structural Integrity State: {health_pct:.1f}%")
+        st.pyplot(fig_heat)
 
-# ================= FATIGUE & AI MODULE =================
+# ================= AI MODULE & DATA LOGGING =================
 st.markdown("---")
-st.subheader("🤖 Fatigue & AI Prediction Module")
+c1, c2 = st.columns(2)
 
-sigma_u, sigma_f, b_f = p_ultimate, 0.9 * p_ultimate, -0.09
+with c1:
+    st.subheader("🤖 AI Life Forecast")
+    # AI Logic: Predict Remaining Useful Life based on Fatigue
+    # Training a local RF model on synthetic fatigue data
+    X_train = np.linspace(10, p_ultimate, 200).reshape(-1, 1)
+    y_train = 10000 * np.exp(-0.008 * X_train.flatten()) # Inverse relation load vs life
+    rf_model = RandomForestRegressor(n_estimators=100).fit(X_train, y_train)
+    
+    ai_load = st.number_input("Predict Life for Load (kN):", value=applied_p if 'applied_p' in locals() else 100.0)
+    prediction = rf_model.predict([[ai_load]])[0]
+    st.info(f"AI Prediction: Structure can sustain approx. **{int(prediction)}** more cycles at this load.")
 
-def predict_cycles(load):
-    if load >= sigma_u: return 1
-    return (load/sigma_f)**(1/b_f) / 2
+with c2:
+    st.subheader("📜 Structural Health Audit")
+    if st.session_state.history:
+        df_history = pd.DataFrame(st.session_state.history)
+        st.dataframe(df_history.tail(5))
+        # Export functionality
+        csv = df_history.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download Health Report", data=csv, file_name="bridge_health_audit.csv", mime='text/csv')
+    else:
+        st.write("No cycles recorded yet. Run an analysis to generate data.")
 
-np.random.seed(42)
-loads_tr = np.random.uniform(0.1*sigma_u, sigma_u, 500).reshape(-1,1)
-cyc_tr = np.array([predict_cycles(l[0]) for l in loads_tr])
-rf = RandomForestRegressor(n_estimators=100).fit(loads_tr, cyc_tr)
-
-colA, colB = st.columns(2)
-with colA:
-    st.write("### Predict Life")
-    l_in = st.number_input("Load for AI (kN)", value=100.0, key="L1")
-    if st.button("AI Predict"):
-        st.success(f"Physics Life: {int(predict_cycles(l_in))} Cycles")
-        st.info(f"AI Predicted Life: {int(rf.predict([[l_in]])[0])} Cycles")
-
-# ================= LIVE MOVING LOAD SIMULATION =================
+# ================= DYNAMIC MOVING LOAD =================
 st.markdown("---")
-st.subheader("🚗 Live Moving Load Simulation")
+st.subheader("🚗 Live Traffic Simulation")
+if st.button("▶️ Start Moving Load Visualization"):
+    plot_spot = st.empty()
+    x_points = np.linspace(0, L, 100)
+    
+    for pos in np.linspace(0, L, 40):
+        # Calculation for moving point load deflection
+        y_def = []
+        for xi in x_points:
+            if xi <= pos:
+                val = (applied_p * 1000 * (L-pos) * xi * (L**2 - (L-pos)**2 - xi**2)) / (6 * curr_e_pa * I_calc * L)
+            else:
+                val = (applied_p * 1000 * pos * (L-xi) * (L**2 - pos**2 - (L-xi)**2)) / (6 * curr_e_pa * I_calc * L)
+            y_def.append(-val * 1000) # Negative for downward deflection
+
+        fig_sim, ax_sim = plt.subplots(figsize=(10, 4))
+        ax_sim.plot(x_points, y_def, color='darkblue', lw=2)
+        ax_sim.axhline(0, color='black', lw=1)
+        ax_sim.scatter([pos], [0], color='red', s=100, zorder=5, label="Vehicle")
+        ax_sim.set_ylim(-limit_mm * 1.5, 5)
+        ax_sim.set_title(f"Dynamic Elastic Curve (Vehicle at {pos:.1f}m)")
+        ax_sim.legend()
+        plot_spot.pyplot(fig_sim)
+        plt.close(fig_sim)
+        time.sleep(0.05)
 
 if st.session_state.is_collapsed:
-    st.error("Bridge is collapsed! Simulation disabled.")
-else:
-    sim_load = st.number_input("Vehicle Weight (kN)", value=200.0, min_value=0.0)
-    if st.button("▶️ Start Moving Load Simulation"):
-        x_points = np.linspace(0, L, 100)
-        plot_spot = st.empty()
-        
-        for pos in np.arange(0, L + 0.5, 0.5):
-            a, b_dist = pos, L - pos
-            y_def = []
-            for xi in x_points:
-                if xi <= a:
-                    val = (sim_load * 1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2)) / (6 * curr_e_pa * I_calc * L)
-                else:
-                    val = (sim_load * 1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2)) / (6 * curr_e_pa * I_calc * L)
-                y_def.append(val * 1000)
-
-            fig_sim, ax_sim = plt.subplots(figsize=(10, 4))
-            ax_sim.plot(x_points, [-y for y in y_def], color='blue', lw=2)
-            ax_sim.axhline(0, color='black', lw=1)
-            ax_sim.plot([pos], [0], marker='o', color='red', markersize=10)
-            ax_sim.set_ylim(-limit_mm * 1.5, 5)
-            ax_sim.set_title(f"Dynamic Deflection at Position: {pos:.1f}m")
-            plot_spot.pyplot(fig_sim)
-            plt.close(fig_sim)
-            time.sleep(0.02)
-
-# ================= HISTORY TABLE =================
-if st.session_state.history:
-    st.markdown("---")
-    st.subheader("📜 Structural History Log")
-    df_history = pd.DataFrame(st.session_state.history)
-    st.table(df_history)
-    
-    csv = df_history.to_csv(index=False)
-    st.download_button(
-        label="📥 Download History as CSV",
-        data=csv,
-        file_name="bridge_history.csv",
-        mime="text/csv"
-    )
+    st.error("🚨 SYSTEM HALTED: BRIDGE COLLAPSED DUE TO OVERLOAD.")
