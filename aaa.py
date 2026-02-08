@@ -191,87 +191,93 @@ with colA:
         st.info(f"AI Predicted Life: {int(rf.predict([[l_in]])[0])} Cycles")
 
 # ================= LIVE MOVING LOAD SIMULATION =================
-# ================= OPTIMIZED DUAL-VEHICLE SIMULATION =================
-st.markdown("---")
-st.subheader("🚛 High-Resolution Traffic Simulation (Truck vs Car)")
+# ================= DUAL VEHICLE SIMULATION WITH LIVE GAUGE =================
+st.subheader("🚛 Dual-Vehicle Dynamic Comparison & Live Health Gauge")
 
-col_sim1, col_sim2 = st.columns(2)
-with col_sim1:
-    truck_load = st.number_input("Truck Load (Heavy) (kN)", value=400.0)
-with col_sim2:
-    car_load = st.number_input("Car Load (Light) (kN)", value=50.0)
+c1, c2, c3 = st.columns([1, 1, 1])
+with c1:
+    v1_load = st.number_input("Vehicle 1 (Heavy) (kN)", value=400.0)
+with c2:
+    v2_load = st.number_input("Vehicle 2 (Light) (kN)", value=50.0)
+with c3:
+    # Live Gauge Placeholder
+    gauge_placeholder = st.empty()
 
-if st.button("▶️ Start Smooth Comparison Simulation"):
+if st.button("▶️ Start Smooth Simulation"):
     x_points = np.linspace(0, L, 100)
     plot_spot = st.empty()
     
-    # 100 Frames for Smoothness
+    # Trace Data Storage for Plotly Hover
+    trace_x, trace_v1_y, trace_v2_y = [], [], []
     frames = np.linspace(0, L, 100)
-    
-    # Trace data storage
-    trace_x = []
-    trace_truck_y = []
-    trace_car_y = []
 
     for pos in frames:
         a, b_dist = pos, L - pos
-        y_truck = []
-        y_car = []
+        y_v1, y_v2 = [], []
         
-        # Optimized Calculation Loop
         for xi in x_points:
-            if xi <= a:
-                term = (1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2))
-            else:
-                term = (1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2))
-            
-            y_truck.append(-(truck_load * term) / (6 * curr_e_pa * I_calc * L) * 1000)
-            y_car.append(-(car_load * term) / (6 * curr_e_pa * I_calc * L) * 1000)
+            term = (1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2)) if xi <= a else (1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2))
+            y_v1.append(-(v1_load * term) / (6 * curr_e_pa * I_calc * L) * 1000)
+            y_v2.append(-(v2_load * term) / (6 * curr_e_pa * I_calc * L) * 1000)
 
-        # Current peak points for trace
-        peak_t = min(y_truck)
-        peak_c = min(y_car)
-        trace_x.append(pos)
-        trace_truck_y.append(peak_t)
-        trace_car_y.append(peak_c)
+        p1, p2 = min(y_v1), min(y_v2)
+        trace_x.append(round(pos, 2))
+        trace_v1_y.append(round(p1, 3))
+        trace_v2_y.append(round(p2, 3))
 
-        # Rendering the Frame
-        fig, ax = plt.subplots(figsize=(10, 4), dpi=80) # DPI optimized for speed
-        
-        # Plot Elastic Curves
-        ax.plot(x_points, y_truck, color='red', lw=2, label=f"Truck ({truck_load}kN)")
-        ax.plot(x_points, y_car, color='green', lw=1.2, linestyle='--', label=f"Car ({car_load}kN)")
-        
-        # Plot Trace Lines (Dotted)
-        ax.plot(trace_x, trace_truck_y, color='red', linestyle=':', alpha=0.3)
-        ax.plot(trace_x, trace_car_y, color='green', linestyle=':', alpha=0.3)
-        
-        # Markers
-        ax.scatter([pos], [0], color='red', s=100, marker='s', zorder=5) # Truck
-        ax.scatter([pos], [0], color='green', s=40, marker='o', zorder=5) # Car
-        
+        # 1. Update Plot (Matplotlib for Speed in Animation)
+        fig, ax = plt.subplots(figsize=(10, 4), dpi=85)
+        ax.plot(x_points, y_v1, color='red', lw=2, label=f"Vehicle 1 ({v1_load}kN)")
+        ax.plot(x_points, y_v2, color='green', lw=1.5, linestyle='--', label=f"Vehicle 2 ({v2_load}kN)")
         ax.axhline(0, color='black', lw=1)
         ax.set_ylim(-limit_mm * 2.5, 5)
-        
-        # Updated Title with BOTH deflections
-        ax.set_title(f"Pos: {pos:.1f}m | Truck Def: {abs(peak_t):.2f}mm | Car Def: {abs(peak_c):.2f}mm", fontsize=10)
-        
-        ax.legend(loc='upper right', fontsize='small')
-        ax.grid(True, alpha=0.2)
-        
-        # Animation Display
+        ax.set_title(f"Pos: {pos:.1f}m | V1 Def: {abs(p1):.2f}mm | V2 Def: {abs(p2):.2f}mm")
+        ax.legend(loc='upper right')
         plot_spot.pyplot(fig)
-        plt.close(fig) 
-        
-        # Atakne se bachne ke liye delay ko adjust kiya (render time + sleep = smooth motion)
-        time.sleep(0.01) 
+        plt.close(fig)
 
-    st.success("Simulation Complete!")
+        # 2. Update Live Gauge (Plotly)
+        # Damage simulation based on V1 mid-span impact
+        current_health = (st.session_state.e_current / initial_E) * 100
+        fig_gauge = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = current_health,
+            title = {'text': "Live Health Index (%)"},
+            gauge = {'axis': {'range': [0, 100]},
+                     'bar': {'color': "black"},
+                     'steps': [{'range': [0, 50], 'color': "red"},
+                               {'range': [50, 80], 'color': "orange"},
+                               {'range': [80, 100], 'color': "green"}]}))
+        fig_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
+        gauge_placeholder.plotly_chart(fig_gauge, use_container_width=True)
+        
+        time.sleep(0.01)
+
+    # ================= INTERACTIVE HOVER CHART (POST-SIMULATION) =================
+    st.markdown("---")
+    st.subheader("🔍 Interactive Trace Analysis (Hover to See Components)")
+    st.info("Animation khatam hone ke baad aap niche graph par cursor le ja kar har point ka data dekh sakte hain.")
+    
+    fig_hover = go.Figure()
+    fig_hover.add_trace(go.Scatter(x=trace_x, y=trace_v1_y, name="Vehicle 1 Trace", line=dict(color='red', dash='dot')))
+    fig_hover.add_trace(go.Scatter(x=trace_x, y=trace_v2_y, name="Vehicle 2 Trace", line=dict(color='green', dash='dot')))
+    
+    fig_hover.update_layout(
+        title="Peak Deflection Trajectory (Hover Enabled)",
+        xaxis_title="Vehicle Position (m)",
+        yaxis_title="Deflection (mm)",
+        hovermode="x unified",
+        template="plotly_white"
+    )
+    st.plotly_chart(fig_hover, use_container_width=True)
+
+st.success("Simulation & Trace Analysis Ready!")
 # ================= HISTORY TABLE =================
 if st.session_state.history:
     st.markdown("---")
     st.subheader("📜 Structural History Log")
     st.table(pd.DataFrame(st.session_state.history))
+
 
 
 
