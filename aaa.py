@@ -191,68 +191,88 @@ with colA:
         st.info(f"AI Predicted Life: {int(rf.predict([[l_in]])[0])} Cycles")
 
 # ================= LIVE MOVING LOAD SIMULATION =================
-# ================= DUAL-VEHICLE DYNAMIC COMPARISON (Yahan Insert Karein) =================
+# ================= OPTIMIZED DUAL-VEHICLE SIMULATION =================
 st.markdown("---")
-st.subheader("🚛 Dual-Vehicle Traffic Simulation (Truck vs Car)")
+st.subheader("🚛 High-Resolution Traffic Simulation (Truck vs Car)")
 
-# Load inputs in columns
 col_sim1, col_sim2 = st.columns(2)
 with col_sim1:
     truck_load = st.number_input("Truck Load (Heavy) (kN)", value=400.0)
 with col_sim2:
     car_load = st.number_input("Car Load (Light) (kN)", value=50.0)
 
-if st.button("▶️ Start Dual-Vehicle Simulation"):
-    x_points = np.linspace(0, L, 100) # Bridge span points
-    plot_spot = st.empty() # Animation placeholder
+if st.button("▶️ Start Smooth Comparison Simulation"):
+    x_points = np.linspace(0, L, 100)
+    plot_spot = st.empty()
     
-    # 100 Frames for Smoothness (0.05s delay per frame)
+    # 100 Frames for Smoothness
     frames = np.linspace(0, L, 100)
     
+    # Trace data storage
+    trace_x = []
+    trace_truck_y = []
+    trace_car_y = []
+
     for pos in frames:
         a, b_dist = pos, L - pos
         y_truck = []
         y_car = []
         
+        # Optimized Calculation Loop
         for xi in x_points:
-            # Macaulay's Logic for both vehicles
             if xi <= a:
                 term = (1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2))
             else:
                 term = (1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2))
             
-            # Deflections
             y_truck.append(-(truck_load * term) / (6 * curr_e_pa * I_calc * L) * 1000)
             y_car.append(-(car_load * term) / (6 * curr_e_pa * I_calc * L) * 1000)
 
-        # Plotting the frame
-        fig_dual, ax_dual = plt.subplots(figsize=(10, 4))
-        
-        # Plot Curves
-        ax_dual.plot(x_points, y_truck, color='red', lw=2.5, label=f"Truck ({truck_load}kN)")
-        ax_dual.plot(x_points, y_car, color='green', lw=1.5, linestyle='--', label=f"Car ({car_load}kN)")
-        
-        # Layout & Formatting
-        ax_dual.axhline(0, color='black', lw=1.5)
-        ax_dual.scatter([pos], [0], color='red', s=100, marker='s') # Truck marker
-        ax_dual.scatter([pos], [0], color='green', s=50, marker='o') # Car marker
-        
-        ax_dual.set_ylim(-limit_mm * 2.5, 5)
-        ax_dual.set_title(f"Position: {pos:.2f}m | Max Truck Deflection: {abs(min(y_truck)):.2f} mm")
-        ax_dual.legend()
-        ax_dual.grid(True, alpha=0.3)
-        
-        plot_spot.pyplot(fig_dual)
-        plt.close(fig_dual) # Memory cleanup
-        time.sleep(0.05) # Speed control
+        # Current peak points for trace
+        peak_t = min(y_truck)
+        peak_c = min(y_car)
+        trace_x.append(pos)
+        trace_truck_y.append(peak_t)
+        trace_car_y.append(peak_c)
 
-st.success("Simulation Complete!")
+        # Rendering the Frame
+        fig, ax = plt.subplots(figsize=(10, 4), dpi=80) # DPI optimized for speed
+        
+        # Plot Elastic Curves
+        ax.plot(x_points, y_truck, color='red', lw=2, label=f"Truck ({truck_load}kN)")
+        ax.plot(x_points, y_car, color='green', lw=1.2, linestyle='--', label=f"Car ({car_load}kN)")
+        
+        # Plot Trace Lines (Dotted)
+        ax.plot(trace_x, trace_truck_y, color='red', linestyle=':', alpha=0.3)
+        ax.plot(trace_x, trace_car_y, color='green', linestyle=':', alpha=0.3)
+        
+        # Markers
+        ax.scatter([pos], [0], color='red', s=100, marker='s', zorder=5) # Truck
+        ax.scatter([pos], [0], color='green', s=40, marker='o', zorder=5) # Car
+        
+        ax.axhline(0, color='black', lw=1)
+        ax.set_ylim(-limit_mm * 2.5, 5)
+        
+        # Updated Title with BOTH deflections
+        ax.set_title(f"Pos: {pos:.1f}m | Truck Def: {abs(peak_t):.2f}mm | Car Def: {abs(peak_c):.2f}mm", fontsize=10)
+        
+        ax.legend(loc='upper right', fontsize='small')
+        ax.grid(True, alpha=0.2)
+        
+        # Animation Display
+        plot_spot.pyplot(fig)
+        plt.close(fig) 
+        
+        # Atakne se bachne ke liye delay ko adjust kiya (render time + sleep = smooth motion)
+        time.sleep(0.01) 
 
+    st.success("Simulation Complete!")
 # ================= HISTORY TABLE =================
 if st.session_state.history:
     st.markdown("---")
     st.subheader("📜 Structural History Log")
     st.table(pd.DataFrame(st.session_state.history))
+
 
 
 
