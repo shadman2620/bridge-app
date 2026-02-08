@@ -104,9 +104,9 @@ m4.metric("Ultimate Load", f"{p_ultimate:.1f} kN")
 
 st.markdown("---")
 
-# ================= STRUCTURAL IMPACT ANALYSIS =================
+# ================= STRUCTURAL IMPACT ANALYSIS (FIXED LOGIC) =================
 if not st.session_state.is_collapsed:
-    col1,col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
     with col1:
         st.write("## Structural Impact Analysis")
@@ -118,21 +118,15 @@ if not st.session_state.is_collapsed:
             if applied_p >= p_ultimate:
                 st.session_state.is_collapsed = True
                 st.session_state.e_current = 0
-                st.error("💥 BRIDGE COLLAPSED")
+                st.rerun()
             else:
                 load_ratio = applied_p / p_perm
-                # Damage model: function of Load-to-Capacity ratio
                 damage_factor = 0.02 + (load_ratio**3)*0.15
-
                 delta = ((applied_p*1000*(L**3))/(48*curr_e_pa*I_calc))*1000
 
-                if delta > limit_mm:
-                    st.error(f"🔴 Deflection {delta:.2f} mm")
-                elif delta > 0.75*limit_mm:
-                    st.warning(f"🟠 Deflection {delta:.2f} mm")
-                else:
-                    st.success(f"🟢 Deflection {delta:.2f} mm Safe")
-
+                # Data save karna taaki screen refresh pe warning na jaye
+                st.session_state.last_delta = delta
+                
                 st.session_state.history.append({
                     "Cycle": len(st.session_state.history)+1,
                     "Load_kN": applied_p,
@@ -144,20 +138,15 @@ if not st.session_state.is_collapsed:
                 st.session_state.e_current *= (1 - damage_factor)
                 st.rerun()
 
-    with col2:
-        health = (st.session_state.e_current / initial_E) * 100
-        st.write(f"## Health Index = {health:.2f}%")
-        
-        # Color Gauge
-        health_map = np.linspace(0, 100, 200)
-        colors = plt.cm.get_cmap("RdYlGn")(health_map/100)
-        fig, ax = plt.subplots(figsize=(6,1))
-        ax.imshow([colors], extent=[0,100,0,1])
-        ax.axvline(health, color='black', linewidth=3)
-        ax.set_yticks([])
-        ax.set_xlabel("Health Status")
-        st.pyplot(fig)
-
+        # Button ke bahar warning display (taaki hamesha dikhe)
+        if 'last_delta' in st.session_state:
+            d = st.session_state.last_delta
+            if d >= limit_mm:
+                st.error(f"🔴 DANGER: Deflection {d:.2f} mm (Limit: {limit_mm:.2f} mm)")
+            elif d >= 0.75 * limit_mm:
+                st.warning(f"🟠 WARNING: Fatigue Detected. Deflection {d:.2f} mm")
+            else:
+                st.success(f"🟢 SAFE: Deflection {d:.2f} mm is within limits.")
 # ================= FATIGUE & AI MODULE =================
 st.markdown("---")
 st.subheader("🤖 Fatigue & AI Prediction Module")
@@ -217,4 +206,5 @@ if st.session_state.history:
     st.markdown("---")
     st.subheader("📜 Structural History Log")
     st.table(pd.DataFrame(st.session_state.history))
+
 
