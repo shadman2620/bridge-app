@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import time
+import plotly.graph_objects as go
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 
@@ -277,6 +278,7 @@ if st.session_state.history:
     st.markdown("---")
     st.subheader("📜 Structural History Log")
     st.table(pd.DataFrame(st.session_state.history))
+
 
 
 
