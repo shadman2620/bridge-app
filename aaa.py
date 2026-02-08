@@ -191,40 +191,69 @@ with colA:
         st.info(f"AI Predicted Life: {int(rf.predict([[l_in]])[0])} Cycles")
 
 # ================= LIVE MOVING LOAD SIMULATION =================
+# ================= DUAL-VEHICLE DYNAMIC COMPARISON (Yahan Insert Karein) =================
 st.markdown("---")
-st.subheader("🚗 Live Moving Load Simulation")
+st.subheader("🚛 Dual-Vehicle Traffic Simulation (Truck vs Car)")
 
-sim_load = st.number_input("Vehicle Weight (kN)", value=200.0)
-if st.button("▶️ Start Moving Load Simulation"):
-    x_points = np.linspace(0, L, 100)
-    plot_spot = st.empty()
+# Load inputs in columns
+col_sim1, col_sim2 = st.columns(2)
+with col_sim1:
+    truck_load = st.number_input("Truck Load (Heavy) (kN)", value=400.0)
+with col_sim2:
+    car_load = st.number_input("Car Load (Light) (kN)", value=50.0)
+
+if st.button("▶️ Start Dual-Vehicle Simulation"):
+    x_points = np.linspace(0, L, 100) # Bridge span points
+    plot_spot = st.empty() # Animation placeholder
     
-    for pos in np.arange(0, L + 0.5, 0.5):
+    # 100 Frames for Smoothness (0.05s delay per frame)
+    frames = np.linspace(0, L, 100)
+    
+    for pos in frames:
         a, b_dist = pos, L - pos
-        y_def = []
+        y_truck = []
+        y_car = []
+        
         for xi in x_points:
-            # Deflection formula based on Macaulay's logic for varying vehicle position
+            # Macaulay's Logic for both vehicles
             if xi <= a:
-                val = (sim_load * 1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2)) / (6 * curr_e_pa * I_calc * L)
+                term = (1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2))
             else:
-                val = (sim_load * 1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2)) / (6 * curr_e_pa * I_calc * L)
-            y_def.append(val * 1000)
+                term = (1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2))
+            
+            # Deflections
+            y_truck.append(-(truck_load * term) / (6 * curr_e_pa * I_calc * L) * 1000)
+            y_car.append(-(car_load * term) / (6 * curr_e_pa * I_calc * L) * 1000)
 
-        fig_sim, ax_sim = plt.subplots(figsize=(10, 4))
-        ax_sim.plot(x_points, [-y for y in y_def], color='blue', lw=2)
-        ax_sim.axhline(0, color='black', lw=1)
-        ax_sim.plot([pos], [0], marker='o', color='red', markersize=10)
-        ax_sim.set_ylim(-limit_mm * 1.5, 5)
-        ax_sim.set_title(f"Dynamic Deflection at Position: {pos:.1f}m")
-        plot_spot.pyplot(fig_sim)
-        plt.close(fig_sim)
-        time.sleep(0.02)
+        # Plotting the frame
+        fig_dual, ax_dual = plt.subplots(figsize=(10, 4))
+        
+        # Plot Curves
+        ax_dual.plot(x_points, y_truck, color='red', lw=2.5, label=f"Truck ({truck_load}kN)")
+        ax_dual.plot(x_points, y_car, color='green', lw=1.5, linestyle='--', label=f"Car ({car_load}kN)")
+        
+        # Layout & Formatting
+        ax_dual.axhline(0, color='black', lw=1.5)
+        ax_dual.scatter([pos], [0], color='red', s=100, marker='s') # Truck marker
+        ax_dual.scatter([pos], [0], color='green', s=50, marker='o') # Car marker
+        
+        ax_dual.set_ylim(-limit_mm * 2.5, 5)
+        ax_dual.set_title(f"Position: {pos:.2f}m | Max Truck Deflection: {abs(min(y_truck)):.2f} mm")
+        ax_dual.legend()
+        ax_dual.grid(True, alpha=0.3)
+        
+        plot_spot.pyplot(fig_dual)
+        plt.close(fig_dual) # Memory cleanup
+        time.sleep(0.05) # Speed control
+
+st.success("Simulation Complete!")
 
 # ================= HISTORY TABLE =================
 if st.session_state.history:
     st.markdown("---")
     st.subheader("📜 Structural History Log")
     st.table(pd.DataFrame(st.session_state.history))
+
 
 
 
