@@ -93,6 +93,7 @@ p_ultimate = 1.5 * p_perm
 
 # ================= HEADER =================
 st.title("🏗️ NIT Patna Bridge Health Monitor")
+st.markdown("##### **Developed by Shadman Mallick")
 st.subheader("M.Tech Structural Engineering | AI + Fatigue + Digital Twin")
 
 m1,m2,m3,m4 = st.columns(4)
@@ -216,3 +217,4 @@ if st.session_state.history:
     st.markdown("---")
     st.subheader("📜 Structural History Log")
     st.table(pd.DataFrame(st.session_state.history))
+
