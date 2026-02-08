@@ -1,7 +1,7 @@
-
 # =====================================================
-# NIT PATNA: BRIDGE DIGITAL TWIN (FINAL MASTER CODE)
+# NIT PATNA: BRIDGE DIGITAL TWIN (UPDATED MASTER CODE)
 # Developed for M.Tech Structural Engineering Research
+# Updated with Rainflow Fatigue, Adaptive AI, and Bug Fixes
 # =====================================================
 import streamlit as st
 import pandas as pd
@@ -14,6 +14,10 @@ from sklearn.model_selection import train_test_split
 
 # ================= RAINFLOW FUNCTION =================
 def rainflow_cycles(signal):
+    """
+    Rainflow counting algorithm to extract cycle amplitudes from a stress signal.
+    Used for fatigue analysis under variable loading.
+    """
     cycles = []
     stack = []
     for x in signal:
@@ -50,14 +54,14 @@ with st.expander("📖 USER MANUAL & DOCUMENTATION"):
     
     * **Cumulative Fatigue (Multiple Inputs):**
         - Every time you click 'Run Analysis', the bridge "remembers" the stress. 
-        - Even if you apply small loads many times, the **Stiffness ($E$)** will gradually decrease, representing **Fatigue Cracking**.
+        - Even if you apply small loads many times, the **Stiffness ($E$)** will gradually decrease, representing **Fatigue Cracking**. Now uses Rainflow counting for accurate cycle-based damage accumulation.
     
     * **Safety Status:**
         - 🟢 **Green:** Safe (Deflection within L/800).
         - 🟠 **Orange:** Warning (Structural fatigue starting).
         - 🔴 **Red:** Danger (Immediate maintenance required).
     
-    * **AI Forecast:** The AI analyzes your previous inputs and predicts how many more such cycles the bridge can survive before it becomes unsafe.
+    * **AI Forecast:** The AI analyzes your previous inputs and predicts how many more such cycles the bridge can survive before it becomes unsafe. Now retrains on your history for adaptive predictions.
     """)
 
 # ================= MATERIAL DATA (IS 456:2000) =================
@@ -70,9 +74,14 @@ st.sidebar.header("🌉 Bridge Design Parameters")
 grade = st.sidebar.selectbox("Select Concrete Grade", list(concrete_grades.keys()), index=1)
 initial_E = float(concrete_grades[grade])
 
-b = st.sidebar.number_input("Width b (m)", value=0.5)
-h = st.sidebar.number_input("Depth h (m)", value=1.0)
-L = st.sidebar.number_input("Span Length L (m)", value=20.0)
+b = st.sidebar.number_input("Width b (m)", value=0.5, min_value=0.1)
+h = st.sidebar.number_input("Depth h (m)", value=1.0, min_value=0.1)
+L = st.sidebar.number_input("Span Length L (m)", value=20.0, min_value=1.0)
+
+# Safety checks for inputs
+if b <= 0 or h <= 0 or L <= 0:
+    st.sidebar.error("Dimensions must be positive!")
+    st.stop()
 
 I_calc = (b * (h**3)) / 12
 
@@ -82,6 +91,8 @@ if 'e_current' not in st.session_state or st.sidebar.button("Reset Simulation"):
     st.session_state.history = []
     st.session_state.is_collapsed = False
     st.session_state.load_history = []
+    st.session_state.stress_history = []  # For rainflow: list of stress amplitudes (deflection as proxy)
+    st.session_state.total_damage = 0.0  # Cumulative damage (Miner's sum)
 
 # ================= STRUCTURAL CALC =================
 limit_mm = (L * 1000) / 800
@@ -108,22 +119,45 @@ if not st.session_state.is_collapsed:
 
     with col1:
         st.write("## Structural Impact Analysis")
-        applied_p = st.number_input("Applied Load (kN)", value=100.0)
+        applied_p = st.number_input("Applied Load (kN)", value=100.0, min_value=0.0)
 
         if st.button("RUN IMPACT ANALYSIS"):
             st.session_state.load_history.append(applied_p)
 
-            if applied_p >= p_ultimate:
+            # Calculate deflection
+            delta = ((applied_p*1000*(L**3))/(48*curr_e_pa*I_calc))*1000 if curr_e_pa > 0 else float('inf')
+
+            # Append to stress history (use deflection as proxy for stress amplitude)
+            st.session_state.stress_history.append(delta)
+
+            # Run rainflow on stress history to get cycles
+            cycles = rainflow_cycles(st.session_state.stress_history)
+
+            # Fatigue parameters (Basquin-like for life prediction)
+            sigma_u, sigma_f, b_f = p_ultimate, 0.9 * p_ultimate, -0.09
+
+            def predict_cycles(load):
+                if load >= sigma_u: return 1
+                return (load / sigma_f)**(1 / b_f) / 2
+
+            # Accumulate damage using Miner's rule (only for loads above fatigue threshold)
+            fatigue_threshold = 0.5 * p_perm
+            if applied_p > fatigue_threshold:
+                for cycle_amp in cycles:
+                    life_at_amp = predict_cycles(cycle_amp)
+                    if life_at_amp > 0:
+                        st.session_state.total_damage += 1.0 / life_at_amp
+
+            # Check for collapse (overload or full damage)
+            if applied_p >= p_ultimate or st.session_state.total_damage >= 1.0:
                 st.session_state.is_collapsed = True
                 st.session_state.e_current = 0
                 st.error("💥 BRIDGE COLLAPSED")
             else:
-                load_ratio = applied_p / p_perm
-                # Damage model: function of Load-to-Capacity ratio
-                damage_factor = 0.02 + (load_ratio**3)*0.15
+                # Update stiffness based on cumulative damage
+                st.session_state.e_current = max(0, initial_E * (1 - st.session_state.total_damage))
 
-                delta = ((applied_p*1000*(L**3))/(48*curr_e_pa*I_calc))*1000
-
+                # Safety status based on deflection
                 if delta > limit_mm:
                     st.error(f"🔴 Deflection {delta:.2f} mm")
                 elif delta > 0.75*limit_mm:
@@ -131,42 +165,36 @@ if not st.session_state.is_collapsed:
                 else:
                     st.success(f"🟢 Deflection {delta:.2f} mm Safe")
 
+                # Log history
                 st.session_state.history.append({
                     "Cycle": len(st.session_state.history)+1,
                     "Load_kN": applied_p,
-                    "Damage_%": round(damage_factor*100,3),
-                    "Deflection_mm": round(delta,3),
-                    "E_GPa": round(st.session_state.e_current/1000,3)
+                    "Damage_%": round(st.session_state.total_damage*100, 3),
+                    "Deflection_mm": round(delta, 3),
+                    "E_GPa": round(st.session_state.e_current/1000, 3)
                 })
 
-                st.session_state.e_current *= (1 - damage_factor)
                 st.rerun()
 
     with col2:
-        health = (st.session_state.e_current / initial_E) * 100
+        health = (st.session_state.e_current / initial_E) * 100 if initial_E > 0 else 0
         st.write(f"## Health Index = {health:.2f}%")
         
-        # Color Gauge
-        health_map = np.linspace(0, 100, 200)
-        colors = plt.cm.get_cmap("RdYlGn")(health_map/100)
-        fig, ax = plt.subplots(figsize=(6,1))
-        ax.imshow([colors], extent=[0,100,0,1])
-        ax.axvline(health, color='black', linewidth=3)
-        ax.set_yticks([])
-        ax.set_xlabel("Health Status")
-        st.pyplot(fig)
+        # Simple progress bar for health (replaces complex gauge)
+        st.progress(min(100, int(health)))
 
 # ================= FATIGUE & AI MODULE =================
 st.markdown("---")
 st.subheader("🤖 Fatigue & AI Prediction Module")
 
+# Fatigue parameters
 sigma_u, sigma_f, b_f = p_ultimate, 0.9 * p_ultimate, -0.09
 
 def predict_cycles(load):
     if load >= sigma_u: return 1
-    return (load/sigma_f)**(1/b_f) / 2
+    return (load / sigma_f)**(1 / b_f) / 2
 
-# ML Train logic
+# Initial ML model (trained on synthetic data)
 np.random.seed(42)
 loads_tr = np.random.uniform(0.1*sigma_u, sigma_u, 500).reshape(-1,1)
 cyc_tr = np.array([predict_cycles(l[0]) for l in loads_tr])
@@ -177,41 +205,72 @@ with colA:
     st.write("### Predict Life")
     l_in = st.number_input("Load for AI (kN)", value=100.0, key="L1")
     if st.button("AI Predict"):
-        st.success(f"Physics Life: {int(predict_cycles(l_in))} Cycles")
-        st.info(f"AI Predicted Life: {int(rf.predict([[l_in]])[0])} Cycles")
+        phys_life = int(predict_cycles(l_in))
+        ai_life = int(rf.predict([[l_in]])[0])
+        st.success(f"Physics Life: {phys_life} Cycles")
+        st.info(f"AI Predicted Life: {ai_life} Cycles")
+
+with colB:
+    st.write("### Forecast Health")
+    if st.button("Forecast Remaining Life"):
+        if len(st.session_state.history) >= 5:
+            # Retrain on user history
+            hist_loads = np.array([h['Load_kN'] for h in st.session_state.history]).reshape(-1,1)
+            hist_cycles = np.array([predict_cycles(h['Load_kN']) for h in st.session_state.history])
+            rf.fit(hist_loads, hist_cycles)
+            
+            # Predict remaining life at current health
+            current_load = st.session_state.history[-1]['Load_kN'] if st.session_state.history else 100.0
+            remaining = int(rf.predict([[current_load]])[0] * (health / 100))
+            st.success(f"Estimated Remaining Cycles: {remaining}")
+        else:
+            st.warning("Need at least 5 analyses for forecast.")
 
 # ================= LIVE MOVING LOAD SIMULATION =================
 st.markdown("---")
 st.subheader("🚗 Live Moving Load Simulation")
 
-sim_load = st.number_input("Vehicle Weight (kN)", value=200.0)
-if st.button("▶️ Start Moving Load Simulation"):
-    x_points = np.linspace(0, L, 100)
-    plot_spot = st.empty()
-    
-    for pos in np.arange(0, L + 0.5, 0.5):
-        a, b_dist = pos, L - pos
-        y_def = []
-        for xi in x_points:
-            # Deflection formula based on Macaulay's logic for varying vehicle position
-            if xi <= a:
-                val = (sim_load * 1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2)) / (6 * curr_e_pa * I_calc * L)
-            else:
-                val = (sim_load * 1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2)) / (6 * curr_e_pa * I_calc * L)
-            y_def.append(val * 1000)
+if st.session_state.is_collapsed:
+    st.error("Bridge is collapsed! Simulation disabled.")
+else:
+    sim_load = st.number_input("Vehicle Weight (kN)", value=200.0, min_value=0.0)
+    if st.button("▶️ Start Moving Load Simulation"):
+        x_points = np.linspace(0, L, 100)
+        plot_spot = st.empty()
+        
+        for pos in np.arange(0, L + 0.5, 0.5):
+            a, b_dist = pos, L - pos
+            y_def = []
+            for xi in x_points:
+                # Deflection formula for point load (Macaulay's method approximation)
+                if xi <= a:
+                    val = (sim_load * 1000 * b_dist * xi * (L**2 - b_dist**2 - xi**2)) / (6 * curr_e_pa * I_calc * L) if curr_e_pa > 0 else 0
+                else:
+                    val = (sim_load * 1000 * a * (L - xi) * (L**2 - a**2 - (L - xi)**2)) / (6 * curr_e_pa * I_calc * L) if curr_e_pa > 0 else 0
+                y_def.append(val * 1000)
 
-        fig_sim, ax_sim = plt.subplots(figsize=(10, 4))
-        ax_sim.plot(x_points, [-y for y in y_def], color='blue', lw=2)
-        ax_sim.axhline(0, color='black', lw=1)
-        ax_sim.plot([pos], [0], marker='o', color='red', markersize=10)
-        ax_sim.set_ylim(-limit_mm * 1.5, 5)
-        ax_sim.set_title(f"Dynamic Deflection at Position: {pos:.1f}m")
-        plot_spot.pyplot(fig_sim)
-        plt.close(fig_sim)
-        time.sleep(0.02)
+            fig_sim, ax_sim = plt.subplots(figsize=(10, 4))
+            ax_sim.plot(x_points, [-y for y in y_def], color='blue', lw=2)
+            ax_sim.axhline(0, color='black', lw=1)
+            ax_sim.plot([pos], [0], marker='o', color='red', markersize=10)
+            ax_sim.set_ylim(-limit_mm * 1.5, 5)
+            ax_sim.set_title(f"Dynamic Deflection at Position: {pos:.1f}m")
+            plot_spot.pyplot(fig_sim)
+            plt.close(fig_sim)
+            time.sleep(0.02)
 
 # ================= HISTORY TABLE =================
 if st.session_state.history:
     st.markdown("---")
     st.subheader("📜 Structural History Log")
-    st.table(pd.DataFrame(st.session_state.history))
+    df_history = pd.DataFrame(st.session_state.history)
+    st.table(df_history)
+    
+    # Export button
+    csv = df_history.to_csv(index=False)
+    st.download_button(
+        label="📥 Download History as CSV",
+        data=csv,
+        file_name="bridge_history.csv",
+        mime="text/csv"
+    )
